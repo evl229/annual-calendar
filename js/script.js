@@ -97,7 +97,7 @@ const CATEGORIES = [
               { date: "2026-06-17", mode: "online" }, { date: "2026-06-24", mode: "online" }
           ]},
           { label: "토요반", mode: "online", dates: ["2026-07-04", "2026-07-11", "2026-07-18"] },
-          { label: "195기 (평일반)", mode: "mix", dates: ["2026-07-9", "2026-07-10", 
+          { label: "평일반", mode: "mix", dates: ["2026-07-9", "2026-07-10", 
               { date: "2026-07-15", mode: "online" }, { date: "2026-07-22", mode: "online" }
           ]},
           
@@ -264,6 +264,7 @@ let activeTab = CATEGORIES[0].id;
 const sessionState = {};
 const expanded = {};
 let hoverDates = null;
+let hideClosed = false;
  
 // Initialize the state for each program (whether it is toggled on/off and expanded/collapsed)
 CATEGORIES.forEach(cat => cat.programs.forEach(p => {
@@ -333,6 +334,26 @@ function formatDateList(sess) {
 }
  
 /**
+ * Closed Session Checker
+ * A session counts as closed once it has already started, i.e. its FIRST date
+ * has already passed (before today) — enrollment closes once a course begins,
+ * even if some later online dates in that same session are still upcoming.
+ * Used to mark past programs in the sidebar (strikethrough + "신청마감" badge)
+ * and to render them fainter / optionally hide them in both the sidebar and
+ * the calendar grid.
+ */
+function isSessionClosed(sess) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dates = normalizeDates(sess).map(({ date }) => {
+    const [y, m, d] = date.split("-");
+    return new Date(y, m - 1, d);
+  });
+  const firstDate = new Date(Math.min(...dates));
+  return firstDate < today;
+}
+
+/**
  * Date Index Builder
  * Scans through the currently selected category and builds a dictionary (map) of all active dates.
  * It links specific dates to the color and mode of the courses happening on that day so the grid knows what to highlight.
@@ -341,11 +362,12 @@ function buildDateIndex(category) {
   const idx = {};
   category.programs.forEach(prog => {
     prog.sessions.forEach((sess, i) => {
-      if (sessionState[prog.id][i]) {
-        normalizeDates(sess).forEach(({ date, mode }) => {
-          (idx[date] ??= []).push({ color: prog.color, mode });
-        });
-      }
+      if (!sessionState[prog.id][i]) return;
+      const closed = isSessionClosed(sess);
+      if (closed && hideClosed) return; // hidden entirely while "마감된 일정 숨기기" is on
+      normalizeDates(sess).forEach(({ date, mode }) => {
+        (idx[date] ??= []).push({ color: prog.color, mode, closed });
+      });
     });
   });
   return idx;
@@ -353,8 +375,10 @@ function buildDateIndex(category) {
  
 /**
  * Tab Navigation Renderer
- * Generates the clickable tabs (e.g., KAC, KPC, 진단) at the top of the calendar.
- * Changes the active tab and re-renders the page when clicked.
+ * Generates the clickable tabs (e.g., KAC, KPC, 진단) at the top of the calendar,
+ * plus a "마감된 일정 숨기기" button that sits alongside them. The button isn't
+ * tied to one specific tab — it stays visible and works the same regardless of
+ * which tab is active, so switching tabs never resets the hide/show state.
  */
 function renderTabs() {
   const el = document.getElementById("tabs");
@@ -371,6 +395,13 @@ function renderTabs() {
     });
     el.appendChild(btn);
   });
+
+  const hideBtn = h("button", {
+    className: `hide-closed-btn${hideClosed ? " active" : ""}`,
+    textContent: hideClosed ? "마감된 일정 표시" : "마감된 일정 숨기기",
+    onclick: () => { hideClosed = !hideClosed; renderPanel(); renderGrid(); renderTabs(); }
+  });
+  el.appendChild(hideBtn);
 }
  
 /**
@@ -386,6 +417,13 @@ function renderPanel() {
   cat.programs.forEach(prog => {
     const states = sessionState[prog.id];
     const allOff = states.every(s => !s);
+
+    const sessionEntries = prog.sessions
+      .map((sess, i) => ({ sess, i, closed: isSessionClosed(sess) }))
+      .filter(({ closed }) => !hideClosed || !closed);
+
+    // Nothing left to show for this program while "마감된 일정 숨기기" is on — skip the whole card.
+    if (hideClosed && sessionEntries.length === 0) return;
  
     const bodyChildren = [
       prog.tags?.length && h("div", { className: "course-tags" },
@@ -394,14 +432,15 @@ function renderPanel() {
       prog.notes?.length && h("div", { className: "course-notes" }, 
         prog.notes.map(line => h("p", { textContent: line }))
       ),
-      prog.sessions.map((sess, i) => {
+      sessionEntries.map(({ sess, i, closed }) => {
         const normalized = normalizeDates(sess);
         return h("div", {
-          className: "sess-row",
+          className: `sess-row${closed ? " closed" : ""}`,
           onmouseenter: () => { hoverDates = new Set(normalized.map(x => x.date)); renderGrid(); }, // Highlights dates in the grid on hover
           onmouseleave: () => { hoverDates = null; renderGrid(); } // Removes highlight when mouse leaves
         },
           h("span", { className: "sess-label", textContent: sess.label || `세션 ${i + 1}` }),
+          closed && h("span", { className: "status-badge", textContent: "신청마감" }),
           h("span", { className: "sess-dates", textContent: formatDateList(sess) })
         );
       })
@@ -430,7 +469,7 @@ function renderPanel() {
 }
  
 /**
- * Master Toggle Switch Creator
+ * Toggle Switch Creator
  * Creates the on/off switch for a specific course in the sidebar.
  * When toggled, it turns the course highlights on or off inside the calendar grid.
  */
@@ -506,26 +545,26 @@ function renderGrid() {
       const dateStr = `${YEAR}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       const hits = idx[dateStr] || [];
       const td = h("td", { className: "cell" });
- 
-      // Apply background styling depending on how many courses land on this exact date
-      if (hits.length === 1) {
-        td.style.background = withAlpha(hits[0].color, 0.5); // One course: Solid transparent color
-      } else if (hits.length >= 2) {
-        // Multiple courses: Creates a gradient splitting the colors evenly
-        const stops = hits.slice(0, 3).map((h, i, arr) => {
-          const start = Math.round((i / arr.length) * 100);
-          const end = Math.round(((i + 1) / arr.length) * 100);
-          const c = withAlpha(h.color, 0.5);
-          return `${c} ${start}%, ${c} ${end}%`;
-        }).join(", ");
-        td.style.background = `linear-gradient(90deg, ${stops})`;
-      }
-      
-      // If any of the courses on this date are online, add diagonal stripes
-      if (hits.some(h => h.mode === "online")) td.classList.add("striped");
-      
-      // Add hover highlighting capability
+
+      // Each course landing on this date gets its own positioned segment, so a
+      // diagonal stripe only covers the segment(s) belonging to an online course,
+      // not the entire cell (e.g. a shared date with an offline docs deadline).
       if (hits.length) {
+        const shown = hits.slice(0, 3);
+        const n = shown.length;
+        shown.forEach((hit, i) => {
+          const seg = h("span", {
+            className: `seg${hit.mode === "online" ? " striped" : ""}${hit.closed ? " seg-closed" : ""}`,
+            style: {
+              left: `${(i / n) * 100}%`,
+              width: `${(1 / n) * 100}%`,
+              background: withAlpha(hit.color, hit.closed ? 0.2 : 0.5)
+            }
+          });
+          td.appendChild(seg);
+        });
+
+        // Add hover highlighting capability
         td.title = hits.length > 1 ? `${hits.length}건의 일정` : "";
         if (hoverDates?.has(dateStr)) td.classList.add("emph");
       }
@@ -548,6 +587,6 @@ function renderAll() {
   renderPanel();
   renderGrid();
 }
- 
+
 // Execute the initial render to load the calendar onto the page
 renderAll();
