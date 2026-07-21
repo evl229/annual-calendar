@@ -100,6 +100,30 @@ h1{font-size: clamp(1.5rem, 3.5vw, 1.75rem);margin:0 0 4px;color:var(--text); te
     gap:0px;
 }
 
+/* ---- hide-closed toggle button, sits in the tabs row ---- */
+.hide-closed-btn{
+    margin-left:auto;
+    border:1px solid var(--stroke);
+    background:#fff;
+    padding:4px 15px;
+    font-size:12px;
+    font-weight:700;
+    cursor:pointer;
+    color:var(--text_light);
+    display:flex;
+    align-items:center;
+    transition:background .12s, color .12s, border-color .12s;
+}
+.hide-closed-btn:hover{
+    border-color:var(--text_light);
+    color:var(--text);
+}
+.hide-closed-btn.active{
+    background:var(--text);
+    border-color:var(--text);
+    color:#fff;
+}
+
 /* One collapsible, colored card per program (a "course") in the sidebar. */
 .course{
     overflow:hidden;
@@ -114,6 +138,11 @@ h1{font-size: clamp(1.5rem, 3.5vw, 1.75rem);margin:0 0 4px;color:var(--text); te
     font-weight:700;
     cursor:pointer;
     min-width:0;
+    transition:background .15s, box-shadow .15s;
+}
+.course-head:hover{
+    background:rgba(0, 0, 0, 0.05);
+    box-shadow:inset 0 0 0 1px rgba(0, 0, 0, 0.8);
 }
 .course-head .label-group{
     display:flex;align-items:center;gap:7px;min-width:0;flex:1;
@@ -177,6 +206,19 @@ h1{font-size: clamp(1.5rem, 3.5vw, 1.75rem);margin:0 0 4px;color:var(--text); te
     color:#646464;
     font-size:11px;
     line-height:1.45;
+}
+.sess-row.closed .sess-label,
+.sess-row.closed .sess-dates{
+    text-decoration:line-through;
+    color:#b3b3b3;
+}
+.sess-row .status-badge{
+    font-size:10px;
+    font-weight:700;
+    color:#a8a8a8;
+    margin-left:5px;
+    text-decoration:none;
+    display:inline-block;
 }
 
 .course-notes{
@@ -286,9 +328,18 @@ table.cal td.cell.invalid .num{
 table.cal td.cell.invalid{
     background:#fff;
 }
-table.cal td.cell.striped::after{
+table.cal td.cell .seg{
+    position:absolute;
+    top:0;
+    bottom:0;
+    z-index:0;
+}
+table.cal td.cell .seg.striped::after{
     content:"";position:absolute;inset:0;
     background-image:repeating-linear-gradient(45deg,rgba(0, 0, 0, 0.12) 0,rgba(0, 0, 0, 0.12) 2px,transparent 2px,transparent 6px);
+}
+table.cal td.cell .seg.seg-closed.striped::after{
+    background-image:repeating-linear-gradient(45deg,rgba(0, 0, 0, 0.06) 0,rgba(0, 0, 0, 0.06) 2px,transparent 2px,transparent 6px);
 }
 table.cal td.cell .tip{
     position:absolute;inset:0;
